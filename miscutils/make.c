@@ -1016,14 +1016,30 @@ dyndep(struct name *np, struct rule *imprule)
 			newsuff = dp->d_name->n_name;
 			sp = findname(auto_concat(newsuff, suff));
 			if (sp && sp->n_rule) {
+				struct name *ip;
+				int got_ip;
+
+				// Has rule already been used in this chain?
+				if ((sp->n_flag & N_MARK))
+					continue;
+
 				// Generate a name for an implicit prerequisite
-				struct name *ip = newname(auto_concat(base, newsuff));
+				ip = newname(auto_concat(base, newsuff));
 				if ((ip->n_flag & N_DOING))
 					continue;
+
 				if (!ip->n_tim.tv_sec)
 					modtime(ip);
-				if (!chain ? ip->n_tim.tv_sec || (ip->n_flag & N_TARGET) :
-							dyndep(ip, NULL) != NULL) {
+
+				if (!chain) {
+					got_ip = ip->n_tim.tv_sec || (ip->n_flag & N_TARGET);
+				} else {
+					sp->n_flag |= N_MARK;
+					got_ip = dyndep(ip, NULL) != NULL;
+					sp->n_flag &= ~N_MARK;
+				}
+
+				if (got_ip) {
 					// Prerequisite exists or we know how to make it
 					if (imprule) {
 						dp = NULL;
@@ -1754,7 +1770,7 @@ readline(FILE *fd, int want_command)
 			while (isblank(*p))
 				p++;
 
-			if (*p != '\n' && *str != '#')
+			if (*p != '\n' && (posix ? *str != '#' : *p != '#'))
 				return str;
 		}
 
@@ -3122,7 +3138,6 @@ int make_main(int argc UNUSED_PARAM, char **argv)
 #if ENABLE_FEATURE_MAKE_POSIX
 	const char *prag;
 #endif
-	char def_make[] = "makefile";
 	int estat;
 	bool found_target;
 	FILE *ifd;
@@ -3247,17 +3262,17 @@ int make_main(int argc UNUSED_PARAM, char **argv)
 	free((void *)newpath);
 
 	if (!makefiles) {	// Look for a default Makefile
+		if (!posix && (ifd = fopen("PDPmakefile", "r")) != NULL)
+			makefile = "PDPmakefile";
+		else if ((ifd = fopen("PDPmakefile" + 3, "r")) != NULL)
+			makefile = "PDPmakefile" + 3;
 #if !ENABLE_PLATFORM_MINGW32
-		for (; def_make[0] >= 'M'; def_make[0] -= 0x20) {
-#else
-		{
+		else if ((ifd = fopen("Makefile", "r")) != NULL)
+			makefile = "Makefile";
 #endif
-			if ((ifd = fopen(def_make, "r")) != NULL) {
-				makefile = def_make;
-				goto read_makefile;
-			}
-		}
-		error("no makefile found");
+		else
+			error("no makefile found");
+       goto read_makefile;
 	}
 
 	while ((file = llist_pop(&makefiles))) {
