@@ -6943,26 +6943,12 @@ tryexec_applet(int applet_no, int noexec, const char *cmd, char **argv, char **e
 #  define tryexec(c, p, n, a, e) tryexec(c, a, e)
 # endif
 
-static const struct builtincmd *find_builtin(const char *name);
 static void
 tryexec(const char *cmd, const char *path, int noexec, char **argv, char **envp)
 {
 #if ENABLE_FEATURE_SH_STANDALONE
     interp_t interp;
-	int applet_no;
 #endif
-
-	if (unix_path(cmd)) {
-		const char *name = bb_basename(cmd);
-# if ENABLE_FEATURE_SH_STANDALONE
-		if ((applet_no = find_applet_by_name_for_sh(name, path)) >= 0) {
-			tryexec_applet(applet_no, noexec, name, argv, envp);
-		}
-# endif
-		if (!find_builtin(name)) {
-			argv[0] = (char *)name;
-		}
-	}
 
 	/* Workaround for libtool, which assumes the host is an MSYS2
 	 * environment and requires special-case escaping for cmd.exe.
@@ -6981,9 +6967,12 @@ tryexec(const char *cmd, const char *path, int noexec, char **argv, char **envp)
 	/* If the command is a script with an interpreter which is an
 	 * applet, we can run it as if it were a noexec applet. */
 	if (parse_interpreter(cmd, &interp)) {
-		applet_no = find_applet_by_name_for_sh(interp.name, path);
+		int applet_no = find_applet_by_name_for_sh(interp.name, path);
 
 		if (applet_no >= 0) {
+			char **argv_old = argv;
+			char *argv0 = argv[0];
+
 			argv[0] = (char *)cmd;
 			/* evalcommand()/spawn_forkshell() add two elements before argv */
 			if (interp.opts) {
@@ -6995,6 +6984,10 @@ tryexec(const char *cmd, const char *path, int noexec, char **argv, char **envp)
 			/* Identify the index of the script file in argv */
 			set_interp(1 + (interp.opts != NULL));
 			tryexec_applet(applet_no, noexec, cmd, argv, envp);
+
+			// Something went wrong, restore state of argv
+			argv = argv_old;
+			cmd = argv[0] = argv0;
 		}
 	}
 # endif
@@ -7052,12 +7045,18 @@ tryexec(const char *cmd, char **argv, char **envp)
  * have to change the find_command routine as well.
  * argv[-1] must exist and be writable! See tryexec() for why.
  */
+#if ENABLE_PLATFORM_MINGW32
+static const struct builtincmd *find_builtin(const char *name);
+#endif
 static void shellexec(char *prog, char **argv, const char *path, int idx, int noexec)
 {
 	char *cmdname;
 	int e;
 	char **envp;
 	int exerrno;
+#if ENABLE_PLATFORM_MINGW32 && ENABLE_FEATURE_SH_STANDALONE
+	int path_fail = FALSE;
+#endif
 
 	envp = listvars(VEXPORT, VUNSET, /*strlist:*/ NULL, /*end:*/ NULL);
 #if ENABLE_FEATURE_SH_STANDALONE && ENABLE_PLATFORM_MINGW32 && defined(_UCRT)
@@ -7068,13 +7067,9 @@ static void shellexec(char *prog, char **argv, const char *path, int idx, int no
 		putenv(*envp++);
 	envp = NULL;
 #endif
-#if ENABLE_PLATFORM_MINGW32
-	if (has_path(prog)) {
-		tryexec(stack_add_ext_space(prog), path, noexec, argv, envp);
-#else
+#if !ENABLE_PLATFORM_MINGW32
 	if (strchr(prog, '/') != NULL) {
 		tryexec(prog, argv, envp);
-#endif
 		e = errno;
 	} else {
 #if ENABLE_FEATURE_SH_STANDALONE
@@ -7089,16 +7084,57 @@ static void shellexec(char *prog, char **argv, const char *path, int idx, int no
 		while (padvance(&path, argv[0]) >= 0) {
 			cmdname = stackblock();
 			if (--idx < 0 && pathopt == NULL) {
-#if ENABLE_PLATFORM_MINGW32
-				tryexec(cmdname, path, noexec, argv, envp);
-#else
 				tryexec(cmdname, argv, envp);
-#endif
 				if (errno != ENOENT && errno != ENOTDIR)
 					e = errno;
 			}
 		}
 	}
+#else /* ENABLE_PLATFORM_MINGW32 */
+	if (has_path(prog)) {
+		tryexec(stack_add_ext_space(prog), path, noexec, argv, envp);
+		e = errno;
+# if ENABLE_FEATURE_SH_STANDALONE
+		path_fail = TRUE;
+# endif
+	}
+	{
+# if ENABLE_FEATURE_SH_STANDALONE
+		const char *path0 = path;
+		int applet_no = find_applet_by_name_for_sh(prog, path);
+		if (applet_no >= 0) {
+			tryexec_applet(applet_no, noexec, prog, argv, envp);
+			/* We tried execing ourself, but it didn't work.
+			 * Maybe /proc/self/exe doesn't exist?
+			 */
+				goto try_PATH;
+		}
+		if (unix_path(prog)) {
+			const char *name = bb_basename(prog);
+			if ((applet_no = find_applet_by_name_for_sh(name, path)) >= 0) {
+				tryexec_applet(applet_no, noexec, name, argv, envp);
+			}
+			if (!find_builtin(name)) {
+				argv[0] = (char *)name;
+			}
+		}
+		if (!path_fail) {
+ try_PATH:
+# endif
+			e = ENOENT;
+			while (padvance(&path, argv[0]) >= 0) {
+				cmdname = stackblock();
+				if (--idx < 0 && pathopt == NULL) {
+					tryexec(cmdname, path0, noexec, argv, envp);
+					if (errno != ENOENT && errno != ENOTDIR)
+						e = errno;
+				}
+			}
+# if ENABLE_FEATURE_SH_STANDALONE
+		}
+# endif
+	}
+#endif
 
 	/* Map to POSIX errors */
 	switch (e) {
