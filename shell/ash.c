@@ -12794,7 +12794,11 @@ preadfd(void)
 		INTOFF; /* no longjmp'ing out of read_line_input please */
 		nr = read_line_input(line_input_state, cmdedit_prompt, buf, IBUFSIZ);
 		if (bb_got_signal == SIGINT)
+# if ENABLE_PLATFORM_MINGW32
+			write_ctrl_c();
+# else
 			write(STDOUT_FILENO, "^C\n", 3);
+# endif
 		INTON; /* here non-blocked SIGINT will longjmp */
 		if (nr == 0) {
 			/* ^C pressed, "convert" to SIGINT */
@@ -12805,7 +12809,7 @@ preadfd(void)
 			 * is SIG_IGNed on startup, it stays SIG_IGNed)
 			 */
 # else
-			write(STDOUT_FILENO, "^C\n", 3);
+			write_ctrl_c();
 # endif
 			if (trap[SIGINT]) {
 # if ENABLE_PLATFORM_MINGW32
