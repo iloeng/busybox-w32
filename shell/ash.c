@@ -15395,6 +15395,28 @@ parsecmd(int interact)
 	checkkwd = 0;
 	heredoclist = 0;
 	doprompt = interact;
+#if ENABLE_PLATFORM_MINGW32
+	if (doprompt == 1) {
+		const char *cmd = lookupvar("PROMPT_COMMAND");
+
+		if (cmd && *cmd) {
+			struct jmploc *volatile savehandler;
+			struct jmploc jmploc;
+
+			savehandler = exception_handler;
+			if (setjmp(jmploc.loc) == 0) {
+				exception_handler = &jmploc;
+				evalstring((char *)cmd, 0);
+			} else if (bb_got_signal == SIGINT) {
+				write(STDOUT_FILENO, "^C\n", 3);
+			}
+			exception_handler = savehandler;
+			tokpushback = 0;
+			checkkwd = 0;
+			heredoclist = 0;
+		}
+	}
+#endif
 	setprompt_if(doprompt, doprompt);
 	needprompt = 0;
 	return list(1);
