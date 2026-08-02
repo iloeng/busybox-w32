@@ -15384,11 +15384,6 @@ readtoken(void)
 	return t;
 }
 
-#if ENABLE_PLATFORM_MINGW32
-static void exitreset(void);
-static void exitshell(void);
-#endif
-
 /*
  * Read and parse a command.  Returns NODE_EOF on end of file.
  * (NULL is a valid parse tree indicating a blank line.)
@@ -15400,31 +15395,6 @@ parsecmd(int interact)
 	checkkwd = 0;
 	heredoclist = 0;
 	doprompt = interact;
-#if ENABLE_PLATFORM_MINGW32
-	if (doprompt == 1) {
-		const char *cmd = lookupvar("PROMPT_COMMAND");
-
-		if (cmd && *cmd) {
-			struct jmploc *volatile savehandler;
-			struct jmploc jmploc;
-
-			savehandler = exception_handler;
-			if (setjmp(jmploc.loc) == 0) {
-				exception_handler = &jmploc;
-				evalstring((char *)cmd, 0);
-			} else if (bb_got_signal == SIGINT) {
-				write(STDOUT_FILENO, "^C\n", 3);
-			} else {
-				exitreset();
-				exitshell();
-			}
-			exception_handler = savehandler;
-			tokpushback = 0;
-			checkkwd = 0;
-			heredoclist = 0;
-		}
-	}
-#endif
 	setprompt_if(doprompt, doprompt);
 	needprompt = 0;
 	return list(1);
@@ -15606,6 +15576,10 @@ evalcmd(int argc UNUSED_PARAM, char **argv, int flags)
 	return 0;
 }
 
+#if ENABLE_PLATFORM_MINGW32
+static void exitreset(void);
+#endif
+
 /*
  * Read and execute commands.
  * "Top" is nonzero for the top level command loop;
@@ -15637,6 +15611,31 @@ cmdloop(int top)
 			terminal_mode(TRUE);
 #endif
 		}
+#if ENABLE_PLATFORM_MINGW32
+		if (inter) {
+			const char *cmd = lookupvar("PROMPT_COMMAND");
+
+			if (cmd && *cmd) {
+				struct jmploc *volatile savehandler;
+				struct jmploc jmploc;
+
+				savehandler = exception_handler;
+				if (setjmp(jmploc.loc) == 0) {
+					exception_handler = &jmploc;
+					tokpushback = 0;
+					checkkwd = 0;
+					heredoclist = 0;
+					evalstring((char *)cmd, 0);
+				} else if (bb_got_signal == SIGINT) {
+					write(STDOUT_FILENO, "^C\n", 3);
+				} else {
+					exitreset();
+					exitshell();
+				}
+				exception_handler = savehandler;
+			}
+		}
+#endif
 		n = parsecmd(inter);
 #if DEBUG
 		if (DEBUG > 2 && debug && (n != NODE_EOF))
