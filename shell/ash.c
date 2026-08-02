@@ -15384,6 +15384,11 @@ readtoken(void)
 	return t;
 }
 
+#if ENABLE_PLATFORM_MINGW32
+static void exitreset(void);
+static void exitshell(void);
+#endif
+
 /*
  * Read and parse a command.  Returns NODE_EOF on end of file.
  * (NULL is a valid parse tree indicating a blank line.)
@@ -15409,6 +15414,9 @@ parsecmd(int interact)
 				evalstring((char *)cmd, 0);
 			} else if (bb_got_signal == SIGINT) {
 				write(STDOUT_FILENO, "^C\n", 3);
+			} else {
+				exitreset();
+				exitshell();
 			}
 			exception_handler = savehandler;
 			tokpushback = 0;
