@@ -15618,6 +15618,7 @@ cmdloop(int top)
 			if (cmd && *cmd) {
 				struct jmploc *volatile savehandler;
 				struct jmploc jmploc;
+				int cmdstatus = exitstatus;
 
 				savehandler = exception_handler;
 				if (setjmp(jmploc.loc) == 0) {
@@ -15632,6 +15633,7 @@ cmdloop(int top)
 					exitreset();
 					exitshell();
 				}
+				exitstatus = cmdstatus;
 				exception_handler = savehandler;
 			}
 		}
