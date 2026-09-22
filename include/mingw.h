@@ -682,6 +682,8 @@ int err_win_to_posix(void);
 
 ULONGLONG CompatGetTickCount64(void);
 #define GetTickCount64 CompatGetTickCount64
+void CompatGetSystemTimePreciseAsFileTime(FILETIME *ft);
+#define GetSystemTimePreciseAsFileTime CompatGetSystemTimePreciseAsFileTime
 
 int enumerate_links(const char *file, char *name) FAST_FUNC;
 
