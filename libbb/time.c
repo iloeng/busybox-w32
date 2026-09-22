@@ -304,6 +304,37 @@ char* FAST_FUNC strftime_YYYYMMDDHHMMSS(char *buf, unsigned len, time_t *tp)
 	return strftime_fmt(buf, len, tp, "%Y-%m-%d %H:%M:%S");
 }
 
+#if ENABLE_PLATFORM_MINGW32
+static unsigned long long monotonic_res(unsigned long long res)
+{
+	LARGE_INTEGER freq, count;
+	unsigned long long freq_ull, count_ull;
+
+	QueryPerformanceFrequency(&freq);	// infallible
+	QueryPerformanceCounter(&count);	// advances freq counts per second
+	freq_ull = (unsigned long long)freq.QuadPart;
+	count_ull = (unsigned long long)count.QuadPart;
+	/* high ceiling integer count*res/freq (avoids overflow) */
+	return count_ull / freq_ull * res + count_ull % freq_ull * res / freq_ull;
+}
+
+unsigned FAST_FUNC monotonic_sec(void)
+{
+	return (unsigned)monotonic_res(1);
+}
+unsigned long long FAST_FUNC monotonic_ms(void)
+{
+	return monotonic_res(1000);
+}
+unsigned long long FAST_FUNC monotonic_us(void)
+{
+	return monotonic_res(1000000);
+}
+unsigned long long FAST_FUNC monotonic_ns(void)
+{
+	return monotonic_res(1000000000);
+}
+#else
 #if ENABLE_MONOTONIC_SYSCALL
 
 /* Old glibc (< 2.3.4) does not provide this constant. We use syscall
@@ -367,4 +398,5 @@ unsigned FAST_FUNC monotonic_sec(void)
 	return time(NULL);
 }
 
+#endif
 #endif
